@@ -9,7 +9,7 @@
     "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
-    "@andresaya/edge-tts": "^1.8.0",
+    "@andresaya/edge-tts": "^1.9.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^5.2.1",
     "zod": "^4.4.3"

@@ -1,9 +1,9 @@
-<<<<<<< HEAD
-node_modules
-dist
+node_modules/
+dist/
 episodes/*.mp3
+episodes/*
+!episodes/.gitkeep
 *.log
-=======
 # Logs
 logs
 *.log

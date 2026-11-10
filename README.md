@@ -1,76 +1,90 @@
-# podcast-mcp
+# 🎙️ Podcast MCP Server (con Voci Italiane ed Edge TTS)
 
-A remote MCP server that turns a narration script into a downloadable MP3
-podcast episode. Claude writes the script, calls the `generate_podcast` tool,
-and gives you back a public URL you open or download on your phone.
+Un server **MCP** (*Model Context Protocol*) remoto che permette a **Claude** (su Web o app mobile) di trasformare uno script narrativo in un **episodio podcast audio MP3** scaricabile e riproducibile direttamente via link.
 
-- TTS: Microsoft Edge TTS (free, no API key)
-- Transport: MCP Streamable HTTP (works with the Claude mobile/web app as a
-  custom connector)
-- Output: an MP3 served over a public URL
+* **TTS Engine:** Microsoft Edge TTS (qualità neurale naturale, 100% gratuito, nessuna API key richiesta).
+* **Voci Italiane Native:** `it-male` (*Giuseppe*), `it-female` (*Elsa*), `it-diego` (*Diego*), `it-isabella` (*Isabella*).
+* **Scanditura Sigle Tecniche:** normalizzazione automatica delle sigle dei contratti pubblici (`OG3` $\rightarrow$ *"O G 3"*, `DGUE` $\rightarrow$ *"D G U E"*, `SOA`, `RUP`, `CCNL`, `CIG`, ecc.).
+* **Pulizia Automatica:** rimozione silenziosa di artefatti LLM (es. `[Musica di sottofondo]`, markdown, note di regia).
+* **Trasporto:** MCP Streamable HTTP (compatibile al 100% con i Custom Connectors dell'app Claude).
 
-## How it works
+---
 
-1. You ask Claude for a topic in the Claude app.
-2. Claude writes the full narration script itself.
-3. Claude calls `generate_podcast(title, script, voice)` on this server.
-4. The server synthesizes an MP3, stores it, and returns a public URL.
-5. You tap the URL on your phone to listen or download.
+## ⚡ Come funziona
 
-The tool returns a URL, never the raw audio bytes. That is what makes the
-download reliable from the Claude app without a custom mobile app.
+1. Chiedi a Claude (sul telefono o via web): *"Fai un podcast di 5 minuti che mi spiega questo bando di gara..."*.
+2. Claude redige l'intero script narrativo in prosa.
+3. Claude chiama automaticamente il tool `generate_podcast(title, script, voice, rate)`.
+4. Il server sintetizza l'audio in streaming MP3 e restituisce un **URL pubblico**.
+5. Clicchi sul link dal tuo smartphone o PC e ascolti il podcast (in auto, con gli auricolari o salvandolo nella memoria).
 
-## Local run
+---
+
+## 🎙️ Voci disponibili
+
+| Preset | Voce Edge TTS | Stile / Note |
+|---|---|---|
+| **`it-male`** *(Default)* | `it-IT-GiuseppeMultilingualNeural` | Molto naturale, perfetta per podcast e narrazione |
+| **`it-female`** | `it-IT-ElsaNeural` | Calda, colloquiale e fluida |
+| **`it-diego`** | `it-IT-DiegoNeural` | Più formale e istituzionale |
+| **`it-isabella`** | `it-IT-IsabellaNeural` | Chiara e limpida |
+| `en-male` / `en-female` | `en-US-AndrewNeural` / `AvaNeural` | Voci in lingua inglese |
+| `fr-male` / `fr-female` | `fr-FR-HenriNeural` / `DeniseNeural` | Voci in lingua francese |
+| `es-male` / `es-female` | `es-ES-AlvaroNeural` / `ElviraNeural` | Voci in lingua spagnola |
+
+---
+
+## 🚀 Esecuzione in Locale
+
+Per testarlo in locale (ad esempio con l'MCP Inspector):
 
 ```bash
+git clone https://github.com/ale-gaudenzi/podcast-mcp.git
+cd podcast-mcp
 npm install
 npm run dev
 ```
 
-The server starts on `http://localhost:3000`. The MCP endpoint is `/mcp`.
+Il server si avvia su `http://localhost:3000`. L'endpoint MCP è `http://localhost:3000/mcp`.
 
-Note: localhost is fine for testing with MCP Inspector, but the Claude app
-connects from Anthropic's cloud, so for real use the server must be on a public
-URL (see Deploy).
-
-## Test with MCP Inspector
-
+Puoi testarlo con l'Inspector MCP ufficiale:
 ```bash
 npx @modelcontextprotocol/inspector
 ```
+Seleziona trasporto **Streamable HTTP** e connettiti a `http://localhost:3000/mcp`.
 
-Connect to `http://localhost:3000/mcp` using the Streamable HTTP transport.
+---
 
-## Deploy (public URL required)
+## 🌐 Deploy Online (per collegarlo a Claude)
 
-Any host that gives you a public HTTPS URL works (Fly.io, Railway, Render, a
-small VPS). A Dockerfile is included.
+L'app di Claude effettua le chiamate dai server cloud di Anthropic, quindi per usarlo dal telefono il server deve avere un URL pubblico HTTPS.
 
-Set these environment variables in production:
+### Opzione 1: Render (Consigliata, gratuita/rapida)
+1. Vai su [render.com](https://render.com) e accedi con il tuo account GitHub.
+2. Crea un **New Web Service** selezionando il repository `ale-gaudenzi/podcast-mcp`.
+3. Render rileverà automaticamente la configurazione da `render.yaml`.
+4. Aggiungi la variabile d'ambiente:
+   * `PUBLIC_BASE_URL`: l'indirizzo HTTPS assegnato da Render (es. `https://podcast-mcp-xxxx.onrender.com`).
+5. Clicca su **Deploy**.
 
-- `PUBLIC_BASE_URL` — the public URL of this server, e.g.
-  `https://my-podcast.fly.dev`. Episode URLs are built from this.
-- `PORT` — defaults to 3000.
+### Opzione 2: Fly.io o Docker
+È incluso il `Dockerfile` multi-stage:
+```bash
+fly launch
+fly set secrets PUBLIC_BASE_URL="https://tuo-podcast.fly.dev"
+fly deploy
+```
 
-Important: the `episodes/` directory holds the generated MP3s. On hosts with an
-ephemeral filesystem, mount a volume or switch storage to S3/R2 (see Next
-steps).
+---
 
-## Connect to Claude
+## 📱 Collegamento con Claude
 
-In the Claude app: Customize → Connectors → "+" → add a custom connector with
-the URL `https://YOUR-PUBLIC-URL/mcp`. Free plan allows one custom connector.
-
-Then ask: "Fais-moi un podcast de 3 minutes sur l'histoire du protocole MCP."
-
-## Voices
-
-Presets in `src/tts.ts`: `fr-male`, `fr-female`, `en-male`, `en-female`.
-List all available Edge voices with `new EdgeTTS().getVoices()`.
-
-## Next steps (beyond the POC)
-
-- Swap Edge TTS for OpenAI or ElevenLabs by replacing `src/tts.ts` only.
-- Store MP3s in S3/R2 and return signed URLs instead of local files.
-- Add a two-voice dialogue mode (synthesize per speaker, stitch with ffmpeg).
-- Add auth (OAuth) on the connector if the URL must stay private.
+1. Apri l'app Claude (o su claude.ai da browser).
+2. Vai su **Impostazioni** (o *Customize*) $\rightarrow$ **Connectors** (o *Integrazioni*).
+3. Clicca su **"+"** (Aggiungi connettore custom).
+4. Inserisci l'URL dell'endpoint:
+   ```text
+   https://TUO-SERVER-PUBBLICO/mcp
+   ```
+5. Ora chiedi a Claude:
+   > *"Claude, scrivi un podcast di 5 minuti che riassume gli aspetti chiave di questo documento e crea l'audio per me."*
