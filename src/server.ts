@@ -2,6 +2,7 @@ import express, { type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -9,13 +10,22 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { synthesizeNarration, VOICES, DEFAULT_VOICE } from "./tts.js";
 
+// --- Percorsi e directory di base -------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// Quando compilato in dist/server.js, la radice del progetto è a un livello superiore
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+
 // --- Modalità di esecuzione (STDIO locale vs HTTP) --------------------------
 
 const isStdio = process.argv.includes("--stdio");
 const PORT = Number(process.env.PORT ?? 3000);
 // URL pubblico di questo server (es. http://localhost:3000 o tunnel)
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? `http://localhost:${PORT}`).replace(/\/$/, "");
-const EPISODES_DIR = path.resolve(process.env.EPISODES_DIR ?? "./episodes");
+const EPISODES_DIR = process.env.EPISODES_DIR
+  ? path.resolve(process.env.EPISODES_DIR)
+  : path.join(PROJECT_ROOT, "episodes");
 
 // --- Core Generazione Podcast -----------------------------------------------
 
