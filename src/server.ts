@@ -5,14 +5,15 @@ import path from "node:path";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { synthesizeNarration, VOICES, DEFAULT_VOICE } from "./tts.js";
 
-// --- Config -----------------------------------------------------------------
+// --- Modalità di esecuzione (STDIO locale vs HTTP) --------------------------
 
+const isStdio = process.argv.includes("--stdio");
 const PORT = Number(process.env.PORT ?? 3000);
-// URL pubblico di questo server (es. https://tuo-podcast.fly.dev o https://tuo-servizio.onrender.com)
-// Deve essere raggiungibile via internet dai server di Claude per la connessione remota.
+// URL pubblico di questo server (es. http://localhost:3000 o tunnel)
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? `http://localhost:${PORT}`).replace(/\/$/, "");
 const EPISODES_DIR = path.resolve(process.env.EPISODES_DIR ?? "./episodes");
 
@@ -50,7 +51,7 @@ async function generateEpisode(args: GenerateArgs): Promise<GeneratedEpisode> {
   const outPathNoExt = path.join(EPISODES_DIR, id);
   const voice = args.voice ?? DEFAULT_VOICE;
 
-  const { durationSeconds, voiceUsed } = await synthesizeNarration({
+  const { durationSeconds, voiceUsed, filePath } = await synthesizeNarration({
     text: args.script,
     voice,
     rate: args.rate,
@@ -60,7 +61,7 @@ async function generateEpisode(args: GenerateArgs): Promise<GeneratedEpisode> {
   return {
     id,
     title: args.title,
-    url: `${PUBLIC_BASE_URL}/episodes/${id}.mp3`,
+    url: isStdio ? `file:///${filePath.replace(/\\/g, "/")}` : `${PUBLIC_BASE_URL}/episodes/${id}.mp3`,
     durationSeconds,
     voice: voiceUsed,
   };
@@ -122,66 +123,74 @@ function buildMcpServer(): McpServer {
   return server;
 }
 
-// --- Livello HTTP Express ----------------------------------------------------
-
-const app = express();
-app.use(express.json({ limit: "5mb" }));
-
-// Servizio statico dei file MP3 generati
-app.use(
-  "/episodes",
-  express.static(EPISODES_DIR, {
-    setHeaders: (res) => {
-      res.setHeader("Content-Type", "audio/mpeg");
-      res.setHeader("Cache-Control", "public, max-age=86400");
-    },
-  })
-);
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, voices: Object.keys(VOICES), defaultVoice: DEFAULT_VOICE });
-});
-
-// Endpoint MCP Streamable HTTP (modalità stateless)
-app.post("/mcp", async (req: Request, res: Response) => {
-  try {
-    const server = buildMcpServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-    res.on("close", () => {
-      transport.close();
-      server.close();
-    });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } catch (err) {
-    console.error("Errore richiesta MCP:", err);
-    if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: "2.0",
-        error: { code: -32603, message: "Errore interno server" },
-        id: null,
-      });
-    }
-  }
-});
-
-app.get("/mcp", (_req, res) => {
-  res.status(405).json({
-    jsonrpc: "2.0",
-    error: { code: -32000, message: "Metodo non consentito. Usa POST con trasporto MCP Streamable HTTP." },
-    id: null,
-  });
-});
-
-app.listen(PORT, async () => {
+if (isStdio) {
+  // Modalità STDIO (per Claude Desktop, Cursor, Antigravity, ecc. in locale sul PC)
   await fs.mkdir(EPISODES_DIR, { recursive: true });
-  console.log(`\n🎧 Server Podcast MCP attivo!`);
-  console.log(`  URL pubblico:   ${PUBLIC_BASE_URL}`);
-  console.log(`  Endpoint MCP:   ${PUBLIC_BASE_URL}/mcp`);
-  console.log(`  Cartella audio: ${EPISODES_DIR}`);
-  console.log(`  Voce default:   ${DEFAULT_VOICE} (${VOICES[DEFAULT_VOICE]})\n`);
-});
+  const server = buildMcpServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("🎧 Podcast MCP attivo in modalità STDIO locale.");
+} else {
+  // Modalità HTTP Express (per connessione di rete locale o tunnel)
+  const app = express();
+  app.use(express.json({ limit: "5mb" }));
+
+  // Servizio statico dei file MP3 generati
+  app.use(
+    "/episodes",
+    express.static(EPISODES_DIR, {
+      setHeaders: (res) => {
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      },
+    })
+  );
+
+  app.get("/health", (_req, res) => {
+    res.json({ ok: true, voices: Object.keys(VOICES), defaultVoice: DEFAULT_VOICE });
+  });
+
+  // Endpoint MCP Streamable HTTP (modalità stateless)
+  app.post("/mcp", async (req: Request, res: Response) => {
+    try {
+      const server = buildMcpServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      res.on("close", () => {
+        transport.close();
+        server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      console.error("Errore richiesta MCP:", err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: "Errore interno server" },
+          id: null,
+        });
+      }
+    }
+  });
+
+  app.get("/mcp", (_req, res) => {
+    res.status(405).json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Metodo non consentito. Usa POST con trasporto MCP Streamable HTTP." },
+      id: null,
+    });
+  });
+
+  app.listen(PORT, async () => {
+    await fs.mkdir(EPISODES_DIR, { recursive: true });
+    console.log(`\n🎧 Server Podcast MCP attivo!`);
+    console.log(`  URL locale:     http://localhost:${PORT}`);
+    console.log(`  Endpoint MCP:   http://localhost:${PORT}/mcp`);
+    console.log(`  Cartella audio: ${EPISODES_DIR}`);
+    console.log(`  Voce default:   ${DEFAULT_VOICE} (${VOICES[DEFAULT_VOICE]})\n`);
+  });
+}
 
 export { generateEpisode, isInitializeRequest };
